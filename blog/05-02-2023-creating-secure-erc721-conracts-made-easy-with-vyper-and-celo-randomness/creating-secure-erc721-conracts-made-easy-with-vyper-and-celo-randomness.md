@@ -34,7 +34,7 @@ Meeting these requirements is essential for proper understanding and optimal res
 
 ## Requirements
 
-- [Python3](https://www.python.org/downloads/release/python-368/) or greater
+- [Python3.6](https://www.python.org/downloads/release/python-368/) or greater
 - [NodeJs](https://nodejs.org/en/) >= v14.0.0 and npm >= 6.12.0 (For Ganache)
 - [Ganache](https://www.trufflesuite.com/ganache) (For local blockchain)
 - [eth-brownie](https://eth-brownie.readthedocs.io/en/stable/install.html) (For development and testing smart contracts)
@@ -44,10 +44,10 @@ Meeting these requirements is essential for proper understanding and optimal res
 This is a list of what we’ll cover 🗒
 
 - ✅ **Step 1:** Project setup
-- ✅ **Step 2:** Write project code
-- ✅ **Step 3:** Configure deployment settings
-- ✅ **Step 4:** Deploy your Contract
-- ✅ **Step 5:** Integration with frontend
+- ✅ **Step 2:** Write contract
+- ✅ **Step 3:** Upload Image to IPFS
+- ✅ **Step 4:** Configure deployment settings
+- ✅ **Step 5:** Deploy your Contract
 
 
 ## **Step 1:** Project setup
@@ -94,7 +94,13 @@ After successfully adding the Celo network to Brownie, you can view the list of 
 brownie networks list
 ```
 
-Next, in our project directory, we need to create two new files: .env and brownie-config.yaml. The .env file stores the environment variables that we'll use, while the brownie-config.yaml file stores the brownie configuration.
+Next, we will create an `.env` file in the project root to store the environment variables that will be used in this project. Please populate the `.env` file with the following environment variables.
+
+```bash
+MNEMONIC="your_wallet_mnemonic"
+```
+
+Finally, we will create a `brownie-config.yaml` file to store the configuration for the deployment contract. Please create a `brownie-config.yaml` file in the root directory of the project, and ensure that it includes the following configuration.
 
 ```yaml
 # brownie-config.yaml
@@ -121,7 +127,634 @@ wallets:
     from_mnemonic: ${MNEMONIC}
 ```
 
-```yaml
-# .env
-MNEMONIC="<YOUR_MNEMONIC>"
+## **Step 2:** Write contract
+
+To create an ERC721 contract using Vyper, you will need to create a new file named `NFT.vy` in the `contracts` folder. The `NFT.vy` file will contain the code for your ERC721 contract.
+
+
+### Write basic ERC721 contract
+
+To create a basic ERC721 contract, we first need to define the Vyper version to use. Once we have done that, we can import the ERC721 & ERC165 module from the Vyper interface.
+
+```python
+# @version 0.3.7
+
+from vyper.interfaces import ERC165
+from vyper.interfaces import ERC721
+```
+
+Next, we will define the `ERC721Receiver` interface, which includes the `onERC721Received` function. This function will be called when an ERC721 token is transferred to the contract. The `onERC721Received` function can be used to do something with the token, such as minting it to an account or transferring it to another contract.
+
+```python
+interface ERC721Receiver:
+    def onERC721Received(
+        _operator: address,
+        _from: address,
+        _tokenId: uint256,
+        _data: Bytes[1024]
+    ) -> bytes4: nonpayable
+```
+
+Next, we will define the state variables and mappings that will be used in the ERC-721 contract.
+
+```python
+# State variable
+_name: String[50]
+_symbol: String[5]
+
+SUPPORTED_INTERFACES: constant(bytes4[2]) = [
+    0x01ffc9a7,
+    0x80ac58cd
+]
+
+# Mapping
+_owner: HashMap[uint256, address]
+_balance: HashMap[address, uint256]
+_tokenApprovals: HashMap[uint256, address]
+_operatorApprovals: HashMap[address, HashMap[address, bool]]
+```
+
+Once we have defined the state variables and mappings, the next step is to define the events that will be emitted by the ERC-721 contract. Events are used to notify observers of changes to the contract state.
+
+```python
+event Transfer:
+    sender: indexed(address)
+    receiver: indexed(address)
+    tokenId: uint256
+
+event Approval:
+    owner: indexed(address)
+    spender: indexed(address)
+    tokenId: uint256
+
+event ApprovalForAll:
+    owner: indexed(address)
+    operator: indexed(address)
+    approved: bool
+```
+
+Finally, we will define the functions to be used in the ERC721 contract. This section is not intended to be a comprehensive explanation of the functions, but rather a brief overview. For a more detailed explanation, please refer to the [EIP-721](https://eips.ethereum.org/EIPS/eip-721).
+
+```python
+@external
+def __init__(name_: String[50], symbol_: String[5]):
+    self._name = name_
+    self._symbol = symbol_
+
+@view
+@external
+def name() -> String[50]:
+    return self._name
+
+@view
+@external
+def symbol() -> String[5]:
+    return self._symbol
+
+@view
+@external
+def balanceOf(owner_: address) -> uint256:
+    return self._balance[owner_]
+
+@view
+@external
+def ownerOf(tokenId_: uint256) -> address:
+    return self._ownerOf(tokenId_)
+
+@view
+@external
+def getApproved(tokenId_: uint256) -> address:
+    return self._tokenApprovals[tokenId_]
+
+@view
+@external
+def isApprovedForAll(owner_: address, operator_: address) -> bool:
+    return self._operatorApprovals[owner_][operator_]
+
+@external
+def approve(spender_: address, tokenId_: uint256):
+    owner_: address = self._ownerOf(tokenId_)
+    assert spender_ != empty(address), "ERC721: Approve to the zero address"
+    assert spender_ != owner_, "ERC721: Approve to current owner"
+    assert self._exist(tokenId_), "ERC721: Invalid token id"
+
+    senderIsOwner: bool = self._ownerOf(tokenId_) == msg.sender
+    senderIsApproved: bool = self._operatorApprovals[self._ownerOf(tokenId_)][msg.sender]
+    assert senderIsOwner or senderIsApproved, "ERC721: Not owner or approved for all"
+    self._tokenApprovals[tokenId_] = spender_
+    log Approval(owner_, spender_, tokenId_)
+
+@external
+def setApprovalForAll(operator_: address, approved_: bool):
+    assert operator_ != empty(address), "ERC721: Approve to the zero address"
+    assert operator_ != msg.sender, "ERC721: Approve to caller"
+    self._operatorApprovals[msg.sender][operator_] = approved_
+    log ApprovalForAll(msg.sender, operator_, approved_)
+
+@external
+def transferFrom(from_: address, to_: address, tokenId_: uint256):
+    self._transfer(from_, to_, msg.sender, tokenId_)
+
+@external
+def safeTransferFrom(from_: address, to_: address, tokenId_: uint256, data_: Bytes[1024]=b""):
+    self._transfer(from_, to_, msg.sender, tokenId_)
+    if to_.is_contract: # check if `_to` is a contract address
+        returnValue: bytes4 = ERC721Receiver(to_).onERC721Received(msg.sender, from_, tokenId_, data_)
+        # Throws if transfer destination is a contract which does not implement 'onERC721Received'
+        assert returnValue == method_id("onERC721Received(address,address,uint256,bytes)", output_type=bytes4)
+
+@pure
+@external
+def supportsInterface(interface_id: bytes4) -> bool:
+    """
+    @dev Interface identification is specified in ERC-165.
+    @param interface_id Id of the interface
+    """
+    return interface_id in SUPPORTED_INTERFACES
+
+@internal
+def _transfer(from_: address, to_: address, sender_: address, tokenId_: uint256):
+    assert self._exist(tokenId_), "ERC721: Invalid token id"
+    assert to_ != empty(address), "ERC721: Transfer to the zero address"
+    assert self._isApprovedOrOwner(sender_, tokenId_), "ERC721: Not owner or approved"
+
+    self._balance[from_] -= 1
+    self._balance[to_] += 1
+
+    # Remove previous approvals
+    if self._tokenApprovals[tokenId_] != empty(address):
+        self._tokenApprovals[tokenId_] = empty(address)
+    
+    self._owner[tokenId_] = to_
+    log Transfer(from_, to_, tokenId_)
+
+
+@view
+@internal
+def _isApprovedOrOwner(spender_: address, tokenId_: uint256) -> bool:
+    owner_: address = self._ownerOf(tokenId_)
+    spenderIsOwner: bool = owner_ == spender_
+    spenderIsApproved: bool = spender_ == self._tokenApprovals[tokenId_]
+    spenderIsApprovedForAll: bool = self._operatorApprovals[owner_][spender_]
+    return (spenderIsOwner or spenderIsApproved) or spenderIsApprovedForAll
+@view
+@internal
+def _exist(tokenId_: uint256) -> bool:
+    return self._owner[tokenId_] != empty(address)
+
+@view
+@internal
+def _ownerOf(tokenId_: uint256) -> address:
+    return self._owner[tokenId_]
+```
+
+### Customizing the ERC-721 contract
+
+Now that we have created a basic ERC721 contract, we can add some additional features to meet our needs in this tutorial. We will create a ColorNFT with four different color collections, each with a different level of rarity. When a user mints, they will randomly receive one of those colors.
+
+First, we will add an interface for the Celo Randomness smart contract. We will use this interface to interact with the Celo Randomness smart contract and retrieve a random number.
+
+```python
+interface ERC721Receiver:
+    def onERC721Received(
+        _operator: address,
+        _from: address,
+        _tokenId: uint256,
+        _data: Bytes[1024]
+    ) -> bytes4: nonpayable
+
+# Celo Randomness smart contract interface
+interface IRandom:
+    def random() -> bytes32: view
+```
+
+Next, we will add new state variables and mappings to the ERC721 contract. Here is a list of the state variables and mappings that we will add:
+
+- `_tokenURI`: This will be used to store the token URI for each token ID.
+
+- `_rarityArray`: This will be used to store the rarity of each color.
+
+- `_tokenCounter`: This will be used to store the total number of tokens minted.
+
+- `_mintingFee`: This will be used to store the minting fee.
+
+- `_devAddress`: This will be used to store the developer address.
+
+- `_random`: This will be used to store the Celo Randomness smart contract address.
+
+Here is the complete code:
+
+```python
+# State Variable
+
+_name: String[50]
+_symbol: String[5]
+_tokenURI: DynArray[String[100], 4]
+_rarityArray: DynArray[uint256, 4]
+_tokenCounter: uint256
+_mintingFee: uint256
+
+_devAddress: address
+_random: IRandom
+SUPPORTED_INTERFACES: constant(bytes4[2]) = [
+    0x01ffc9a7,
+    0x80ac58cd
+]
+
+# Mapping
+
+_owner: HashMap[uint256, address]
+_balance: HashMap[address, uint256]
+_tokenApprovals: HashMap[uint256, address]
+_operatorApprovals: HashMap[address, HashMap[address, bool]]
+_tokenIdToURI: HashMap[uint256, String[100]]
+```
+
+Next, we will add a TransferOwnership event. This event will be used to send information about when the ownership of an ERC721 token changes.
+
+```python
+event TransferOwnerShip:
+    newOwner: indexed(address)
+    oldOwner: indexed(address)
+
+event Transfer:
+    sender: indexed(address)
+    receiver: indexed(address)
+    tokenId: uint256
+
+event Approval:
+    owner: indexed(address)
+    spender: indexed(address)
+    tokenId: uint256
+
+event ApprovalForAll:
+    owner: indexed(address)
+    operator: indexed(address)
+    approved: bool
+```
+
+After adding a new state variable, we need to modify the constructor function to initialize the state variable.
+
+```python
+@external
+def __init__(name_: String[50], symbol_: String[5], tokenURI_: DynArray[String[100], 4], rarityArray_: DynArray[uint256, 4], mintingFee_: uint256, random_: address):
+    self._name = name_
+    self._symbol = symbol_
+    self._tokenURI = tokenURI_
+    self._rarityArray = rarityArray_
+    self._tokenCounter = 0
+    self._mintingFee = mintingFee_
+    self._devAddress = msg.sender
+    self._random = IRandom(random_)
+```
+
+Next, we will create some new functionality for developers to configure ERC721 smart contracts. Here are the functions we will add:
+
+- `claimFee()`: This function is used to retrieve the minting fees that have been collected by the ERC721 smart contract.
+
+- `updateFee()`: This function is used to change the minting fee.
+
+- `transferOwnership()`: This function is used to transfer ownership of the ERC-721 smart contract.
+
+- `getDev()` : This function is used to get the developer's address.
+
+Here is the complete code:
+
+```python
+@external
+def claimFee():
+    assert msg.sender == self._devAddress, "Ownable: Only dev can call this function"
+    amount: uint256 = self.balance
+    send(self._devAddress, amount)
+
+@external
+def updateFee(mintingFee_: uint256):
+    assert msg.sender == self._devAddress, "Ownable: Only dev can call this function"
+    self._mintingFee = mintingFee_
+
+@external
+def transferOwnerShip(newOwner_: address):
+    assert msg.sender == self._devAddress, "Ownable: Only dev can call this function"
+    self._devAddress = newOwner_
+    log TransferOwnerShip(newOwner_, msg.sender)
+
+@view
+@external
+def getDev() -> address:
+    return self._devAddress
+```
+
+Next, we will create three new internal functions. The following are the functions:
+
+- `_setTokenURI()`: This function is used to set the URI token.
+
+- `_calculateRarity()`: This function is used to calculate the rarity of the token to be minted.
+
+- `getRandomNumber()`: This function is used to get a random number from the Celo Randomness smart contract.
+
+Here is the complete code:
+
+```python
+@internal
+def _setTokenURI(tokenId_: uint256, tokenURI_: String[100]):
+    self._tokenIdToURI[tokenId_] = tokenURI_
+
+@view
+@internal
+def _calculateRarity(randomNumber_: uint256) -> uint256:
+    cumulativeSum: uint256 = 0
+    rarity: uint256 = 0
+    for i in range(4):
+        if randomNumber_ >= cumulativeSum:
+            if randomNumber_ < self._rarityArray[i]:
+                rarity = i
+        cumulativeSum = self._rarityArray[i]
+    return rarity
+
+@view
+@internal
+def _getRandomNumber() -> uint256:
+    randomHash: bytes32 = keccak256(
+        concat(blockhash(block.number - 15), self._random.random())
+    )
+    return convert(randomHash, uint256)
+```
+
+We have completed the creation of the ERC-721 contract. Here is the complete code for the ERC-721 contract we have created.
+
+```python
+# @dev Implementation of ERC-721 non-fungible token standard.
+# @author Abiyyu Yafi (@yafiabiyyu)
+# Modified from: https://github.com/vyperlang/vyper/blob/de74722bf2d8718cca46902be165f9fe0e3641dd/examples/tokens/ERC721.vy
+
+# @version 0.3.7
+
+from vyper.interfaces import ERC165
+from vyper.interfaces import ERC721
+
+
+# Define Interface
+
+interface ERC721Receiver:
+    def onERC721Received(
+        _operator: address,
+        _from: address,
+        _tokenId: uint256,
+        _data: Bytes[1024]
+    ) -> bytes4: nonpayable
+
+interface IRandom:
+    def random() -> bytes32: view
+
+
+# Define State Variables
+
+_name: String[50]
+_symbol: String[5]
+_tokenURI: DynArray[String[100], 4]
+_rarityArray: DynArray[uint256, 4]
+_tokenCounter: uint256
+_mintingFee: uint256
+
+_devAddress: address
+_random: IRandom
+SUPPORTED_INTERFACES: constant(bytes4[2]) = [
+    0x01ffc9a7,
+    0x80ac58cd
+]
+
+
+# Define Mappings
+
+_owner: HashMap[uint256, address]
+_balance: HashMap[address, uint256]
+_tokenApprovals: HashMap[uint256, address]
+_operatorApprovals: HashMap[address, HashMap[address, bool]]
+_tokenIdToURI: HashMap[uint256, String[100]]
+
+
+# Define Events
+
+event TransferOwnerShip:
+    newOwner: indexed(address)
+    oldOwner: indexed(address)
+
+event Transfer:
+    sender: indexed(address)
+    receiver: indexed(address)
+    tokenId: uint256
+
+event Approval:
+    owner: indexed(address)
+    spender: indexed(address)
+    tokenId: uint256
+
+event ApprovalForAll:
+    owner: indexed(address)
+    operator: indexed(address)
+    approved: bool
+
+
+@external
+def __init__(name_: String[50], symbol_: String[5], tokenURI_: DynArray[String[100], 4], rarityArray_: DynArray[uint256, 4], mintingFee_: uint256, random_: address):
+    self._name = name_
+    self._symbol = symbol_
+    self._tokenURI = tokenURI_
+    self._rarityArray = rarityArray_
+    self._tokenCounter = 0
+    self._mintingFee = mintingFee_
+    self._devAddress = msg.sender
+    self._random = IRandom(random_)
+
+
+# Define Dev Function
+
+@external
+def claimFee():
+    assert msg.sender == self._devAddress, "Ownable: Only dev can call this function"
+    amount: uint256 = self.balance
+    send(self._devAddress, amount)
+
+@external
+def updateFee(mintingFee_: uint256):
+    assert msg.sender == self._devAddress, "Ownable: Only dev can call this function"
+    self._mintingFee = mintingFee_
+
+@external
+def transferOwnerShip(newOwner_: address):
+    assert msg.sender == self._devAddress, "Ownable: Only dev can call this function"
+    self._devAddress = newOwner_
+    log TransferOwnerShip(newOwner_, msg.sender)
+
+@view
+@external
+def getDev() -> address:
+    return self._devAddress
+
+
+# Define ERC721 Functions
+
+@view
+@external
+def name() -> String[50]:
+    return self._name
+
+@view
+@external
+def symbol() -> String[5]:
+    return self._symbol
+
+@view
+@external
+def balanceOf(owner_: address) -> uint256:
+    return self._balance[owner_]
+
+@view
+@external
+def ownerOf(tokenId_: uint256) -> address:
+    return self._ownerOf(tokenId_)
+
+@view
+@external
+def getTokenURI(tokenId_: uint256) -> String[100]:
+    assert self._exist(tokenId_), "ERC721: Invalid token id"
+    return self._tokenIdToURI[tokenId_]
+
+@view
+@external
+def getApproved(tokenId_: uint256) -> address:
+    return self._tokenApprovals[tokenId_]
+
+@view
+@external
+def isApprovedForAll(owner_: address, operator_: address) -> bool:
+    return self._operatorApprovals[owner_][operator_]
+
+@view
+@external
+def fee() -> uint256:
+    return self._mintingFee
+
+@external
+@payable
+def mint():
+    assert msg.value == self._mintingFee, "ERC721: Insufficient fee"
+    randomNumber: uint256 = self._getRandomNumber() % 100
+    rarity: uint256 = self._calculateRarity(randomNumber)
+    self._setTokenURI(self._tokenCounter, self._tokenURI[rarity])
+    self._owner[self._tokenCounter] = msg.sender
+    self._balance[msg.sender] += 1
+    log Transfer(empty(address), msg.sender, self._tokenCounter)
+    self._tokenCounter += 1
+
+
+@external
+def burn(tokenId_: uint256):
+    assert self._isApprovedOrOwner(msg.sender, tokenId_), "ERC721: Not owner or approved"
+    owner: address = self._ownerOf(tokenId_)
+    assert owner != empty(address), "ERC721: Invalid token id"
+    self._balance[owner] -= 1
+    self._owner[tokenId_] = empty(address)
+    self._tokenApprovals[tokenId_] = empty(address)
+    log Transfer(msg.sender, empty(address), tokenId_)
+
+@external
+def approve(spender_: address, tokenId_: uint256):
+    owner_: address = self._ownerOf(tokenId_)
+    assert spender_ != empty(address), "ERC721: Approve to the zero address"
+    assert spender_ != owner_, "ERC721: Approve to current owner"
+    assert self._exist(tokenId_), "ERC721: Invalid token id"
+
+    senderIsOwner: bool = self._ownerOf(tokenId_) == msg.sender
+    senderIsApproved: bool = self._operatorApprovals[self._ownerOf(tokenId_)][msg.sender]
+    assert senderIsOwner or senderIsApproved, "ERC721: Not owner or approved for all"
+    self._tokenApprovals[tokenId_] = spender_
+    log Approval(owner_, spender_, tokenId_)
+
+@external
+def setApprovalForAll(operator_: address, approved_: bool):
+    assert operator_ != empty(address), "ERC721: Approve to the zero address"
+    assert operator_ != msg.sender, "ERC721: Approve to caller"
+    self._operatorApprovals[msg.sender][operator_] = approved_
+    log ApprovalForAll(msg.sender, operator_, approved_)
+
+@external
+def transferFrom(from_: address, to_: address, tokenId_: uint256):
+    self._transfer(from_, to_, msg.sender, tokenId_)
+
+@external
+def safeTransferFrom(from_: address, to_: address, tokenId_: uint256, data_: Bytes[1024]=b""):
+    self._transfer(from_, to_, msg.sender, tokenId_)
+    if to_.is_contract: # check if `_to` is a contract address
+        returnValue: bytes4 = ERC721Receiver(to_).onERC721Received(msg.sender, from_, tokenId_, data_)
+        # Throws if transfer destination is a contract which does not implement 'onERC721Received'
+        assert returnValue == method_id("onERC721Received(address,address,uint256,bytes)", output_type=bytes4)
+
+@pure
+@external
+def supportsInterface(interface_id: bytes4) -> bool:
+    """
+    @dev Interface identification is specified in ERC-165.
+    @param interface_id Id of the interface
+    """
+    return interface_id in SUPPORTED_INTERFACES
+
+@internal
+def _setTokenURI(tokenId_: uint256, tokenURI_: String[100]):
+    self._tokenIdToURI[tokenId_] = tokenURI_
+
+@view
+@internal
+def _calculateRarity(randomNumber_: uint256) -> uint256:
+    cumulativeSum: uint256 = 0
+    rarity: uint256 = 0
+    for i in range(4):
+        if randomNumber_ >= cumulativeSum:
+            if randomNumber_ < self._rarityArray[i]:
+                rarity = i
+        cumulativeSum = self._rarityArray[i]
+    return rarity
+
+@view
+@internal
+def _getRandomNumber() -> uint256:
+    randomHash: bytes32 = keccak256(
+        concat(blockhash(block.number - 15), self._random.random())
+    )
+    return convert(randomHash, uint256)
+
+@internal
+def _transfer(from_: address, to_: address, sender_: address, tokenId_: uint256):
+    assert self._exist(tokenId_), "ERC721: Invalid token id"
+    assert to_ != empty(address), "ERC721: Transfer to the zero address"
+    assert self._isApprovedOrOwner(sender_, tokenId_), "ERC721: Not owner or approved"
+
+    self._balance[from_] -= 1
+    self._balance[to_] += 1
+
+    # Remove previous approvals
+    if self._tokenApprovals[tokenId_] != empty(address):
+        self._tokenApprovals[tokenId_] = empty(address)
+    
+    self._owner[tokenId_] = to_
+    log Transfer(from_, to_, tokenId_)
+
+
+@view
+@internal
+def _isApprovedOrOwner(spender_: address, tokenId_: uint256) -> bool:
+    owner_: address = self._ownerOf(tokenId_)
+    spenderIsOwner: bool = owner_ == spender_
+    spenderIsApproved: bool = spender_ == self._tokenApprovals[tokenId_]
+    spenderIsApprovedForAll: bool = self._operatorApprovals[owner_][spender_]
+    return (spenderIsOwner or spenderIsApproved) or spenderIsApprovedForAll
+@view
+@internal
+def _exist(tokenId_: uint256) -> bool:
+    return self._owner[tokenId_] != empty(address)
+
+@view
+@internal
+def _ownerOf(tokenId_: uint256) -> address:
+    return self._owner[tokenId_]
 ```
