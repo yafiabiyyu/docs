@@ -16,7 +16,7 @@ slug: /tutorials/creating-secure-erc721-conracts-made-easy-with-vyper-and-celo-r
 
 ## Introduction
 
-Vyper, an open-source programming language created specifically for building smart contracts on the Ethereum blockchain. Vyper aims to make it easier for developers to create smart contracts that are more secure and auditable. It is based on Python but has a simpler syntax and supports only a limited number of potentially risky Python features, such as dynamic typing, inheritance, and operator overloading. Vyper's main advantage is its focus on security, with features like strong typing, integer overflow protection, and gas cost estimation designed to prevent mistakes in smart contract development. Additionally, Vyper supports the ERC20, ERC721, and ERC777 smart contract standards. While still under active development, Vyper has gained popularity as a choice for developers seeking to build more secure and auditable smart contracts on the Ethereum blockchain.
+Vyper, an open-source programming language created specifically for building smart contracts on the Celo blockchain. Vyper aims to make it easier for developers to create smart contracts that are more secure and auditable. It is based on Python but has a simpler syntax and supports only a limited number of potentially risky Python features, such as dynamic typing, inheritance, and operator overloading. Vyper's main advantage is its focus on security, with features like strong typing, integer overflow protection, and gas cost estimation designed to prevent mistakes in smart contract development. Additionally, Vyper supports the ERC20, ERC721, and ERC777 smart contract standards. While still under active development, Vyper has gained popularity as a choice for developers seeking to build more secure and auditable smart contracts on the Celo blockchain.
 
 
 ## Prerequisites
@@ -46,8 +46,7 @@ This is a list of what we’ll cover 🗒
 - ✅ **Step 1:** Project setup
 - ✅ **Step 2:** Write contract
 - ✅ **Step 3:** Upload Image to IPFS
-- ✅ **Step 4:** Configure deployment settings
-- ✅ **Step 5:** Deploy your Contract
+- ✅ **Step 4:** Deploy & interact with contract
 
 
 ## **Step 1:** Project setup
@@ -410,13 +409,21 @@ def __init__(name_: String[50], symbol_: String[5], tokenURI_: DynArray[String[1
 
 Next, we will create some new functionality for developers to configure ERC721 smart contracts. Here are the functions we will add:
 
-- `claimFee()`: This function is used to retrieve the minting fees that have been collected by the ERC721 smart contract.
+- `claimFee()`
 
-- `updateFee()`: This function is used to change the minting fee.
+    The `claimFee` function allows the contract developer to claim any fees that have been collected.
 
-- `transferOwnership()`: This function is used to transfer ownership of the ERC-721 smart contract.
+- `updateFee()`
 
-- `getDev()` : This function is used to get the developer's address.
+    The `updateFee` function is an important part of the contract. It allows the contract developer to control the minting fee.
+
+- `transferOwnership()`
+
+    The `transferOwnership` function allows the contract developer to transfer ownership of the contract to another party
+
+- `getDev()`
+
+    The `getDev` function allows anyone to verify who the current developer of the contract is
 
 Here is the complete code:
 
@@ -446,11 +453,23 @@ def getDev() -> address:
 
 Next, we will create three new internal functions. The following are the functions:
 
-- `_setTokenURI()`: This function is used to set the URI token.
+- `_setTokenURI()`
 
-- `_calculateRarity()`: This function is used to calculate the rarity of the token to be minted.
+    The function _setTokenURI is an internal function that is used to set the URI for a token
 
-- `getRandomNumber()`: This function is used to get a random number from the Celo Randomness smart contract.
+- `_calculateRarity()`
+
+    The function _calculateRarity is an internal function that is used to calculate the rarity of a token. The function then calculates the rarity of the token by using the following steps:
+    
+    1. Calculate the cumulative sum of the rarity array.
+    2. Iterate over the rarity array.
+    3. f the random number is greater than or equal to the cumulative sum and less than the current rarity value, then the rarity of the token is the current index.
+    4. Update the cumulative sum to the current rarity value.
+    5. Return the rarity of the token.
+
+- `getRandomNumber()`
+
+    This function is used to get a random number from the Celo Randomness smart contract.
 
 Here is the complete code:
 
@@ -479,6 +498,41 @@ def _getRandomNumber() -> uint256:
     )
     return convert(randomHash, uint256)
 ```
+
+Next, we will create the last two functions, namely the mint function and the burn function. Here is the complete code:
+
+```python
+@external
+@payable
+def mint():
+    assert msg.value == self._mintingFee, "ERC721: Insufficient fee"
+    randomNumber: uint256 = self._getRandomNumber() % 100
+    rarity: uint256 = self._calculateRarity(randomNumber)
+    self._setTokenURI(self._tokenCounter, self._tokenURI[rarity])
+    self._owner[self._tokenCounter] = msg.sender
+    self._balance[msg.sender] += 1
+    log Transfer(empty(address), msg.sender, self._tokenCounter)
+    self._tokenCounter += 1
+
+
+@external
+def burn(tokenId_: uint256):
+    assert self._isApprovedOrOwner(msg.sender, tokenId_), "ERC721: Not owner or approved"
+    owner: address = self._ownerOf(tokenId_)
+    assert owner != empty(address), "ERC721: Invalid token id"
+    self._balance[owner] -= 1
+    self._owner[tokenId_] = empty(address)
+    self._tokenApprovals[tokenId_] = empty(address)
+    log Transfer(msg.sender, empty(address), tokenId_)
+```
+
+- `mint()`
+
+    The `mint` function mints a new token on the blockchain. It checks the user's minting fee and generates a random number to determine the token's rarity. The function then sets the owner of the token and increments the user's balance. It logs a Transfer event and increments the token counter.
+
+- `burn()`
+
+    The `burn` function burns a token on the blockchain. It checks the user's ownership and decrements the user's balance. It sets the owner and approval to empty addresses and logs a Transfer event. In other words, the burn() function removes a token from circulation by setting the token's owner and approval to empty addresses. This makes the token unspendable and effectively removes it from the blockchain.
 
 We have completed the creation of the ERC-721 contract. Here is the complete code for the ERC-721 contract we have created.
 
@@ -758,3 +812,114 @@ def _exist(tokenId_: uint256) -> bool:
 def _ownerOf(tokenId_: uint256) -> address:
     return self._owner[tokenId_]
 ```
+
+## **Step 3:** Upload Image to IPFS
+
+At this stage, we will upload image assets to be used as NFTs to IPFS. We will use IPFS as a repository for image data that will be used as NFTs. We will use an IPFS service provider platform called *Web3.Storage*.
+
+1. Register an account on [Web3.Storage](https://web3.storage/). You can use your GitHub account to register.
+
+2. After registering, you will be redirected to the dashboard page. Click **Upload Files** to upload your files.
+
+    ![image](image/2.png)
+
+3. After uploading the image, you will see the CID of the image that has been uploaded. Copy the CID of the image that has been uploaded.
+
+    ![image](image/3.png)
+
+4. Save the CID of the image. It will be used in the next step.
+
+## **Step 4:** Deploy & interact with contract
+
+This is the final step in this tutorial. In this step, we will deploy and interact with the contracts we created in the previous steps. To do this, we will create a new file named `deploy.py` in the `scripts` folder. This file will contain the code that we need to deploy the contracts and interact with them.
+
+The deploy.py file should contain the following code:
+
+```python
+from brownie import accounts, config, network, NFT, web3
+
+
+def get_account():
+    if network.show_active() == "development":
+        return accounts
+    else:
+        return accounts.from_mnemonic(config["wallets"]["from_mnemonic"], count=5)
+
+
+def main():
+    account = get_account()
+    token_name = "Color Random NFT"
+    token_symbol = "CRNFT"
+    token_uri = [
+        "https://bafyb.....",
+        "https://bafyb.....",
+        "https://bafyb.....",
+        "https://bafyb.....",
+    ]
+    token_rarity = [5, 20, 50, 100]
+    minting_fee = web3.toWei(0.1, "ether")
+    celo_randomness = "0xdd318EEF001BB0867Cd5c134496D6cF5Aa32311F"
+
+    contract = NFT.deploy(
+        token_name,
+        token_symbol,
+        token_uri,
+        token_rarity,
+        minting_fee,
+        celo_randomness,
+        {
+            "from": account[0]
+        }
+    )
+
+    contract.tx.wait(2)
+
+    # Mint tokens
+    txMinting = contract.mint({"from": account[0], "value": minting_fee})
+    txMinting.wait(2)
+
+    # Transfer tokens
+    txTransfer = contract.transferFrom(account[0].address, account[1].address, 0, {"from": account[0]})
+```
+
+In the code snippet above, there are a few things to note:
+
+- `token_uri`: is an array containing the CIDs of the images that were uploaded to IPFS in the previous step. This array will be used to store the CID of the image that will be used as an NFT.
+
+- `token_rarity`: The rarity array is an array that contains the rarity value of each NFT. This array will be used to store the rarity value of each NFT. The rarity value is calculated based on a number of factors, including the number of NFTs in the collection, the rarity of the individual traits, and the overall demand for the collection.
+
+The `token_name`, `token_symbol`, and `minting_fee` can be filled in according to your wishes.
+
+After that, we can run the script by running the following command in the terminal:
+
+```bash
+brownie run scripts/deploy.py --network celo-alfajores
+```
+
+## Conclusion
+
+Vyper is a great choice for developers who are new to smart contract development. It's also a good choice for developers who want to create more secure smart contracts. Here are some of the benefits of using Vyper that I've experienced:
+
+- *Security*: Vyper is a very secure language. It has a number of features that help to prevent mistakes in smart contract development, which can lead to security vulnerabilities. These features include: 
+    - Strong typing: Vyper variables must all have a specified type. This helps to prevent errors such as accidentally passing a string to a function that expects an integer.
+
+    - Integer overflow protection: Vyper prevents integer overflow errors, which can cause smart contracts to crash or behave unexpectedly.
+
+    - Gas cost estimation: Vyper can estimate the gas cost of any function call. This helps developers to avoid running out of gas, which can also cause smart contracts to crash.
+
+- *Ease of use*: Vyper is a very easy language to use. It has a simpler syntax than Solidity, and it has a smaller feature set. This makes it easier for developers to learn and use.
+
+- *Community support*: The Vyper community is very active and helpful. There are a number of resources available to help developers learn Vyper, and there are a number of people who are willing to help developers with their Vyper projects.
+
+## Next Step
+
+Start building your own smart contracts. The best way to learn Vyper is by using it. There are a number of tutorials and examples available online, so you can get started right away. You can also check out the Vyper [documentation](https://docs.vyperlang.org/en/stable/structure-of-a-contract.html) for more information.
+
+## About the Author
+
+I am a blockchain and crypto enthusiast. I am also a software engineer. I love to learn new things and share my knowledge with others. You can find me on [GitHub](https://github.com/yafiabiyyu) and [LinkedIn](https://www.linkedin.com/in/abiyyuyafi/).
+
+## References
+
+- [Vyper Documentation](https://docs.vyperlang.org/en/stable/structure-of-a-contract.html)
+- [Code Repository](https://github.com/yafiabiyyu/vyper-tutorial-code)

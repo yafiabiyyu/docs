@@ -313,8 +313,7 @@ contract LotteryClubToken {
 
 In the next step, we will define several variables that we will use in our contract. We will use the `SafeMath` library to perform math operations and prevent overflow and underflow. These variables include:
 
-- name: to store the name of the club
-
+- `name`: to store the name of the club
 - `reward`: to store the amount of reward to be given
 - `deposit`: to store the amount of deposit that must be paid by members
 - `membersLimit`: to save the number of members needed to participate in the lottery
